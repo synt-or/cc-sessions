@@ -88,7 +88,12 @@ pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    let text = format!("{}\n{}", read_head(path, HEAD)?, read_tail(path, TAIL)?);
+    let size = meta.len();
+    let text = if size > HEAD {
+        format!("{}\n{}", read_head(path, HEAD)?, read_tail(path, TAIL)?)
+    } else {
+        read_head(path, HEAD)?
+    };
     let (cwd, ai_title, last_prompt, first_user) = extract_fields(&text);
     let session_id = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
     Ok(SessionInfo {

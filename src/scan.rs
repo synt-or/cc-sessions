@@ -108,6 +108,31 @@ pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
     })
 }
 
+/// Liste les .jsonl de toutes les sessions, hors `subagents` et fichiers < 2 Kio.
+pub fn discover(projects_dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let Ok(entries) = std::fs::read_dir(projects_dir) else { return files };
+    for proj in entries.flatten() {
+        if !proj.path().is_dir() {
+            continue;
+        }
+        if proj.file_name().to_string_lossy() == "subagents" {
+            continue;
+        }
+        if let Ok(sessions) = std::fs::read_dir(proj.path()) {
+            for s in sessions.flatten() {
+                let p = s.path();
+                if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                    if p.metadata().map(|m| m.len() >= 2048).unwrap_or(false) {
+                        files.push(p);
+                    }
+                }
+            }
+        }
+    }
+    files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

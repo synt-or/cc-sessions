@@ -18,7 +18,7 @@ pub struct SessionMeta {
     pub updated_at: String,
     #[serde(default)]
     pub status: Status,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
 
@@ -58,5 +58,17 @@ mod tests {
         let m: SessionMeta = serde_json::from_str(line).unwrap();
         assert_eq!(m.status, Status::Active);
         assert_eq!(m.note, None);
+    }
+
+    #[test]
+    fn meta_note_absent_when_none() {
+        let m = SessionMeta {
+            session_id: "abc".into(),
+            updated_at: "2026-06-01T13:45".into(),
+            status: Status::Active,
+            note: None,
+        };
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(!s.contains("note"), "note key must be absent when None: {s}");
     }
 }

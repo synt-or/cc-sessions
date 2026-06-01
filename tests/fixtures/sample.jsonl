@@ -1,0 +1,4 @@
+{"type":"user","cwd":"/Users/x/proj","message":{"content":"première vraie question"}}
+{"type":"assistant","cwd":"/Users/x/proj","message":{"content":"réponse"}}
+{"type":"ai-title","aiTitle":"Mon titre auto","sessionId":"sample"}
+{"type":"last-prompt","lastPrompt":"le dernier prompt utilisateur","sessionId":"sample"}

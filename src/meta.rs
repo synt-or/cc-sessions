@@ -41,10 +41,16 @@ pub fn upsert(cwd: &str, session_id: &str, updated_at: &str, status: Status, not
     };
     all.insert(session_id.to_string(), meta.clone());
 
-    let mut f = std::fs::File::create(&file)?;
-    for m in all.values() {
-        writeln!(f, "{}", serde_json::to_string(m).unwrap())?;
+    // écriture atomique : fichier temporaire dans le même dossier puis rename
+    let tmp = file.with_extension("jsonl.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        for m in all.values() {
+            writeln!(f, "{}", serde_json::to_string(m).unwrap())?;
+        }
+        f.sync_all()?;
     }
+    std::fs::rename(&tmp, &file)?;
     Ok(meta)
 }
 

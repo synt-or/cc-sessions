@@ -52,7 +52,7 @@ fn set_status(status: Status) -> Result<()> {
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
     match cli.command {
-        None => picker::run(&build::rows(&projects_dir())),
+        None => picker::run(&projects_dir(), cli.reverse),
         Some(cli::Command::Note { text, append }) => {
             let sid = cli::current_session_id()?;
             let cwd = cwd_of_session(&sid).unwrap_or_else(|| ".".to_string());
@@ -69,6 +69,8 @@ fn main() -> Result<()> {
         }
         Some(cli::Command::Hold) => set_status(Status::Hold),
         Some(cli::Command::Active) => set_status(Status::Active),
+        Some(cli::Command::Burn) => set_status(Status::ReadyToBurn),
+        Some(cli::Command::Manual) => set_status(Status::NeedsManualWork),
         Some(cli::Command::Done { older_than }) => match older_than {
             Some(spec) => stats::mark_done_older_than(&projects_dir(), &spec),
             None => set_status(Status::Done),

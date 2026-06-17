@@ -14,6 +14,9 @@
             version = "0.1.0";
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
+            # Commit git court embarqué dans le binaire pour `cs --version`
+            # (le sandbox n'a pas le .git ; build.rs lit cette variable).
+            env.CS_GIT_COMMIT = self.shortRev or self.dirtyShortRev or "nix";
           };
         });
     };

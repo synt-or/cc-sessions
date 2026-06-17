@@ -39,8 +39,14 @@ fn extract_fields(text: &str) -> (Option<String>, Option<String>, Option<String>
             Ok(v) => v,
             Err(_) => continue,
         };
-        if let Some(c) = v.get("cwd").and_then(|x| x.as_str()) {
-            cwd = Some(c.to_string());
+        // premier cwd rencontré = cwd de création de la session = dossier projet
+        // (`~/.claude/projects/<encoded>`), seul cwd que `claude --resume <id>` sait
+        // retrouver. Une session peut `cd` en cours de route ; on ne suit pas ces
+        // changements, sinon le resume cible le mauvais projet.
+        if cwd.is_none() {
+            if let Some(c) = v.get("cwd").and_then(|x| x.as_str()) {
+                cwd = Some(c.to_string());
+            }
         }
         match v.get("type").and_then(|x| x.as_str()) {
             Some("ai-title") => {
@@ -150,6 +156,19 @@ mod tests {
         assert_eq!(info.first_user.as_deref(), Some("première vraie question"));
         assert_eq!(info.session_id, "sample");
         assert!(info.size > 0);
+    }
+
+    #[test]
+    fn first_cwd_wins_when_session_cds() {
+        // une session qui change de dossier en cours de route : on garde le 1er cwd
+        // (dossier projet / clé de resume), pas le dernier.
+        let text = concat!(
+            r#"{"type":"user","cwd":"/Users/lambda","message":{"content":"go"}}"#,
+            "\n",
+            r#"{"type":"user","cwd":"/Users/lambda/Documents","message":{"content":"suite"}}"#,
+        );
+        let (cwd, _, _, _) = extract_fields(text);
+        assert_eq!(cwd.as_deref(), Some("/Users/lambda"));
     }
 
     #[test]

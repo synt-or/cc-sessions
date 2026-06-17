@@ -7,6 +7,12 @@ pub enum Status {
     Active,
     Hold,
     Done,
+    /// Prête à être lancée/exécutée (🔥).
+    #[serde(rename = "ready_to_burn")]
+    ReadyToBurn,
+    /// Nécessite une intervention manuelle (🔍).
+    #[serde(rename = "needs_manual_work")]
+    NeedsManualWork,
 }
 
 /// Une ligne de `session-notes.jsonl` (métadonnées utilisateur).
@@ -62,12 +68,15 @@ impl SessionRow {
         collapsed.chars().take(70).collect()
     }
 
-    /// Clé de tri : hold (0) avant active (1) avant done (2), puis mtime décroissant.
+    /// Clé de tri : ce qui réclame mon attention d'abord (needs-manual 🔍, ready-to-burn 🔥,
+    /// hold ⏳), puis active, puis done en bas ; à statut égal, mtime décroissant.
     pub fn sort_key(&self) -> (u8, std::cmp::Reverse<u64>) {
         let rank = match self.status() {
-            Status::Hold => 0,
-            Status::Active => 1,
-            Status::Done => 2,
+            Status::NeedsManualWork => 0,
+            Status::ReadyToBurn => 1,
+            Status::Hold => 2,
+            Status::Active => 3,
+            Status::Done => 4,
         };
         (rank, std::cmp::Reverse(self.info.mtime_ns))
     }
@@ -123,6 +132,17 @@ mod tests {
     #[test]
     fn status_serializes_lowercase() {
         assert_eq!(serde_json::to_string(&Status::Hold).unwrap(), "\"hold\"");
+    }
+
+    #[test]
+    fn new_statuses_serialize_snake_case() {
+        assert_eq!(serde_json::to_string(&Status::ReadyToBurn).unwrap(), "\"ready_to_burn\"");
+        assert_eq!(serde_json::to_string(&Status::NeedsManualWork).unwrap(), "\"needs_manual_work\"");
+        // round-trip : le format on-disk doit se relire à l'identique
+        let s: Status = serde_json::from_str("\"ready_to_burn\"").unwrap();
+        assert_eq!(s, Status::ReadyToBurn);
+        let s: Status = serde_json::from_str("\"needs_manual_work\"").unwrap();
+        assert_eq!(s, Status::NeedsManualWork);
     }
 
     #[test]

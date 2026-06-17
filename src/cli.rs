@@ -3,6 +3,9 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "cs", about = "Picker & gestion des sessions Claude Code")]
 pub struct Cli {
+    /// Inverser l'ordre de tri des sessions dans le picker
+    #[arg(long)]
+    pub reverse: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -26,6 +29,10 @@ pub enum Command {
     },
     /// Réactiver la session courante
     Active,
+    /// Marquer la session courante « ready to burn » (🔥 prête à lancer)
+    Burn,
+    /// Marquer la session courante « needs manual work » (🔍 intervention requise)
+    Manual,
     /// Statistiques par projet
     Stats,
     /// Archiver des sessions (non destructif)

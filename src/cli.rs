@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 
+/// Version affichée par `cs --version` : numéro de crate + commit git court,
+/// injecté au build par `build.rs` (variable `CS_GIT_COMMIT`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("CS_GIT_COMMIT"), ")");
+
 #[derive(Parser)]
-#[command(name = "cs", about = "Picker & gestion des sessions Claude Code")]
+#[command(name = "cs", version = VERSION, about = "Picker & gestion des sessions Claude Code")]
 pub struct Cli {
     /// Inverser l'ordre de tri des sessions dans le picker
     #[arg(long)]

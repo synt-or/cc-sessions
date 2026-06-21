@@ -5,7 +5,32 @@ use clap::{Parser, Subcommand};
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("CS_GIT_COMMIT"), ")");
 
 #[derive(Parser)]
-#[command(name = "cs", version = VERSION, about = "Picker & gestion des sessions Claude Code")]
+#[command(
+    name = "cs",
+    version = VERSION,
+    about = "Picker & gestion des sessions Claude Code",
+    after_help = "\
+PICKER INTERACTIF (cs sans argument)
+  Flèches / texte   Filtrer et naviguer parmi les sessions
+  Enter             Ouvrir le sous-menu d'action pour la session sélectionnée
+                    → reprendre · active · hold · burn · manual · done · note
+
+  Dans le sous-menu, choisir « Marquer done ✓ » pour clore la session.
+  Seul « Reprendre » quitte le picker (lance `claude --resume`) ;
+  toutes les autres actions reviennent à la liste filtrée.
+
+  Note : les sessions déjà marquées « done » sont masquées dans le picker.
+
+EXEMPLES
+  cs                          Picker interactif
+  cs note \"Résumé de session\" Attacher une note à la session courante
+  cs done                     Marquer la session courante done
+  cs done --older-than 30d    Marquer done toutes les sessions inactives > 30 jours
+  cs hold                     Mettre en attente
+  cs active                   Réactiver
+  cs stats                    Statistiques par projet
+"
+)]
 pub struct Cli {
     /// Inverser l'ordre de tri des sessions dans le picker
     #[arg(long)]

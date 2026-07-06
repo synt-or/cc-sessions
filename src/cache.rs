@@ -79,14 +79,21 @@ mod tests {
     fn unchanged_file_is_reused_not_reparsed() {
         let dir = std::env::temp_dir().join("cs_cache_test_reuse");
         std::fs::create_dir_all(&dir).unwrap();
-        let p = write_tmp(&dir, "a.jsonl", "{\"type\":\"ai-title\",\"aiTitle\":\"T\"}\n");
+        let p = write_tmp(
+            &dir,
+            "a.jsonl",
+            "{\"type\":\"ai-title\",\"aiTitle\":\"T\"}\n",
+        );
         let first = refresh(&[p.clone()], HashMap::new());
         let key = p.to_string_lossy().into_owned();
         // on injecte une valeur sentinelle dans l'entrée cache : si réutilisée, elle survit
         let mut cached = first.clone();
         cached.get_mut(&key).unwrap().ai_title = Some("SENTINEL".into());
         let second = refresh(&[p.clone()], cached);
-        assert_eq!(second.get(&key).unwrap().ai_title.as_deref(), Some("SENTINEL"));
+        assert_eq!(
+            second.get(&key).unwrap().ai_title.as_deref(),
+            Some("SENTINEL")
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

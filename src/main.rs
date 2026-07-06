@@ -15,7 +15,10 @@ use model::Status;
 use std::path::PathBuf;
 
 fn projects_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".claude").join("projects")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude")
+        .join("projects")
 }
 
 /// Horodatage léger sans dépendance chrono : `date '+%Y-%m-%dT%H:%M'`.
@@ -37,13 +40,43 @@ pub fn now_stamp_pub() -> String {
 /// Trouve le cwd d'une session via l'index (pour rattacher note/statut au bon projet).
 fn cwd_of_session(sid: &str) -> Option<String> {
     let idx = cache::load(&cache::index_path());
-    idx.values().find(|i| i.session_id == sid).and_then(|i| i.cwd.clone())
+    idx.values()
+        .find(|i| i.session_id == sid)
+        .and_then(|i| i.cwd.clone())
 }
 
-fn set_status(status: Status) -> Result<()> {
-    let sid = cli::current_session_id()?;
-    let cwd = cwd_of_session(&sid).unwrap_or_else(|| ".".to_string());
-    let existing = meta::load(&meta::notes_file(&cwd)).get(&sid).and_then(|m| m.note.clone());
+/// Résout (session_id, cwd) de la session ciblée.
+///
+/// `--id <uuid>` : la session DOIT être retrouvable dans l'index (rafraîchi au
+/// besoin) — un fallback silencieux vers `.` rattacherait la note/le statut au
+/// mauvais projet. Sans `--id` : session courante via $CLAUDE_CODE_SESSION_ID,
+/// avec fallback `.` historique (une session toute neuve, < 2 Kio, n'est pas
+/// encore indexée mais son cwd est là où on tape la commande).
+fn target_session(explicit: Option<String>) -> Result<(String, String)> {
+    match explicit {
+        Some(sid) => {
+            let cwd = cwd_of_session(&sid).or_else(|| {
+                let _ = build::rows(&projects_dir()); // rafraîchit l'index
+                cwd_of_session(&sid)
+            });
+            match cwd {
+                Some(c) => Ok((sid, c)),
+                None => anyhow::bail!("session {sid} introuvable dans ~/.claude/projects"),
+            }
+        }
+        None => {
+            let sid = cli::current_session_id()?;
+            let cwd = cwd_of_session(&sid).unwrap_or_else(|| ".".to_string());
+            Ok((sid, cwd))
+        }
+    }
+}
+
+fn set_status(id: Option<String>, status: Status) -> Result<()> {
+    let (sid, cwd) = target_session(id)?;
+    let existing = meta::load(&meta::notes_file(&cwd))
+        .get(&sid)
+        .and_then(|m| m.note.clone());
     meta::upsert(&cwd, &sid, &now_stamp(), status, existing)?;
     println!("✓ statut={status:?} pour {sid}");
     Ok(())
@@ -54,29 +87,36 @@ fn main() -> Result<()> {
     match cli.command {
         None => picker::run(&projects_dir(), cli.reverse),
         Some(cli::Command::Note { text, append }) => {
-            let sid = cli::current_session_id()?;
-            let cwd = cwd_of_session(&sid).unwrap_or_else(|| ".".to_string());
+            let (sid, cwd) = target_session(cli.id)?;
             let mut note = text.join(" ");
             if append {
-                if let Some(prev) = meta::load(&meta::notes_file(&cwd)).get(&sid).and_then(|m| m.note.clone()) {
+                if let Some(prev) = meta::load(&meta::notes_file(&cwd))
+                    .get(&sid)
+                    .and_then(|m| m.note.clone())
+                {
                     note = format!("{prev} ⏎ {note}");
                 }
             }
-            let status = meta::load(&meta::notes_file(&cwd)).get(&sid).map(|m| m.status).unwrap_or_default();
+            let status = meta::load(&meta::notes_file(&cwd))
+                .get(&sid)
+                .map(|m| m.status)
+                .unwrap_or_default();
             let m = meta::upsert(&cwd, &sid, &now_stamp(), status, Some(note))?;
             println!("✓ note ({sid})\n  {}", m.note.unwrap_or_default());
             Ok(())
         }
-        Some(cli::Command::Hold) => set_status(Status::Hold),
-        Some(cli::Command::Active) => set_status(Status::Active),
-        Some(cli::Command::Burn) => set_status(Status::ReadyToBurn),
-        Some(cli::Command::Manual) => set_status(Status::NeedsManualWork),
+        Some(cli::Command::Hold) => set_status(cli.id, Status::Hold),
+        Some(cli::Command::Active) => set_status(cli.id, Status::Active),
+        Some(cli::Command::Burn) => set_status(cli.id, Status::ReadyToBurn),
+        Some(cli::Command::Manual) => set_status(cli.id, Status::NeedsManualWork),
         Some(cli::Command::Done { older_than }) => match older_than {
             Some(spec) => stats::mark_done_older_than(&projects_dir(), &spec),
-            None => set_status(Status::Done),
+            None => set_status(cli.id, Status::Done),
         },
         Some(cli::Command::Stats) => stats::print_stats(&projects_dir()),
-        Some(cli::Command::Archive { older_than, uuids }) => archive::archive(&projects_dir(), older_than.as_deref(), &uuids),
+        Some(cli::Command::Archive { older_than, uuids }) => {
+            archive::archive(&projects_dir(), older_than.as_deref(), &uuids)
+        }
         Some(cli::Command::PurgeArchive) => archive::purge_archive(),
     }
 }

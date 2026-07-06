@@ -17,7 +17,8 @@ pub fn rows(projects_dir: &Path) -> Vec<SessionRow> {
     //  - git_root : un subprocess `git` par cwd distinct (au lieu d'un par ligne)
     //  - notes    : un fichier session-notes.jsonl lu une seule fois par projet
     let mut root_cache: HashMap<String, Option<String>> = HashMap::new();
-    let mut notes_cache: HashMap<String, HashMap<String, crate::model::SessionMeta>> = HashMap::new();
+    let mut notes_cache: HashMap<String, HashMap<String, crate::model::SessionMeta>> =
+        HashMap::new();
 
     let mut rows: Vec<SessionRow> = index
         .into_values()
@@ -28,13 +29,17 @@ pub fn rows(projects_dir: &Path) -> Vec<SessionRow> {
                 .or_insert_with(|| project::git_root(&cwd))
                 .clone();
             let label = project::label(&cwd, root.as_deref());
-            let notes_file = meta::notes_file(&cwd);
+            let notes_file = meta::notes_file_with_root(&cwd, root.as_deref());
             let key = notes_file.to_string_lossy().into_owned();
             let metas = notes_cache
                 .entry(key)
                 .or_insert_with(|| meta::load(&notes_file));
             let m = metas.get(&info.session_id).cloned();
-            SessionRow { info, meta: m, project_label: label }
+            SessionRow {
+                info,
+                meta: m,
+                project_label: label,
+            }
         })
         .collect();
 

@@ -5,25 +5,46 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 fn archive_root() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".claude").join("projects-archive")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude")
+        .join("projects-archive")
 }
 
 fn projects_root() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".claude").join("projects")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude")
+        .join("projects")
 }
 
 /// Déplace les .jsonl ciblés (par âge et/ou uuids) vers l'archive, en conservant
 /// l'arborescence relative à ~/.claude/projects.
 pub fn archive(projects_dir: &Path, older_than: Option<&str>, uuids: &[String]) -> Result<()> {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos() as u64;
-    let cutoff = older_than.and_then(parse_age_ns).map(|a| now.saturating_sub(a));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos() as u64;
+    let cutoff = older_than
+        .and_then(parse_age_ns)
+        .map(|a| now.saturating_sub(a));
     let files = scan::discover(projects_dir);
     let mut moved = 0;
     for f in files {
-        let sid = f.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+        let sid = f
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let by_uuid = uuids.iter().any(|u| u == &sid);
         let by_age = cutoff
-            .map(|c| f.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| (d.as_nanos() as u64) < c).unwrap_or(false))
+            .map(|c| {
+                f.metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| (d.as_nanos() as u64) < c)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
         if !(by_uuid || by_age) {
             continue;
@@ -37,7 +58,10 @@ pub fn archive(projects_dir: &Path, older_than: Option<&str>, uuids: &[String]) 
         moved += 1;
     }
     let _ = build::rows(projects_dir);
-    println!("✓ {moved} session(s) archivée(s) dans {}", archive_root().display());
+    println!(
+        "✓ {moved} session(s) archivée(s) dans {}",
+        archive_root().display()
+    );
     Ok(())
 }
 
@@ -49,7 +73,10 @@ pub fn purge_archive() -> Result<()> {
         return Ok(());
     }
     let count = walk_count(&root);
-    println!("⚠️  Suppression DÉFINITIVE de {count} fichier(s) dans {}", root.display());
+    println!(
+        "⚠️  Suppression DÉFINITIVE de {count} fichier(s) dans {}",
+        root.display()
+    );
     print!("Taper « SUPPRIMER » pour confirmer : ");
     io::stdout().flush()?;
     let mut a = String::new();

@@ -117,8 +117,21 @@ mod row_tests {
 
     #[test]
     fn hold_sorts_before_active() {
-        let mut hold = SessionRow { info: info(1), meta: Some(SessionMeta { session_id: "s".into(), updated_at: "t".into(), status: Status::Hold, note: None }), project_label: "p".into() };
-        let active = SessionRow { info: info(999), meta: None, project_label: "p".into() };
+        let mut hold = SessionRow {
+            info: info(1),
+            meta: Some(SessionMeta {
+                session_id: "s".into(),
+                updated_at: "t".into(),
+                status: Status::Hold,
+                note: None,
+            }),
+            project_label: "p".into(),
+        };
+        let active = SessionRow {
+            info: info(999),
+            meta: None,
+            project_label: "p".into(),
+        };
         assert!(hold.sort_key() < active.sort_key());
         hold.info.mtime_ns = 0;
         assert!(hold.sort_key() < active.sort_key()); // statut prime sur mtime
@@ -136,8 +149,14 @@ mod tests {
 
     #[test]
     fn new_statuses_serialize_snake_case() {
-        assert_eq!(serde_json::to_string(&Status::ReadyToBurn).unwrap(), "\"ready_to_burn\"");
-        assert_eq!(serde_json::to_string(&Status::NeedsManualWork).unwrap(), "\"needs_manual_work\"");
+        assert_eq!(
+            serde_json::to_string(&Status::ReadyToBurn).unwrap(),
+            "\"ready_to_burn\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Status::NeedsManualWork).unwrap(),
+            "\"needs_manual_work\""
+        );
         // round-trip : le format on-disk doit se relire à l'identique
         let s: Status = serde_json::from_str("\"ready_to_burn\"").unwrap();
         assert_eq!(s, Status::ReadyToBurn);
@@ -170,6 +189,9 @@ mod tests {
             note: None,
         };
         let s = serde_json::to_string(&m).unwrap();
-        assert!(!s.contains("note"), "note key must be absent when None: {s}");
+        assert!(
+            !s.contains("note"),
+            "note key must be absent when None: {s}"
+        );
     }
 }

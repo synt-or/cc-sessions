@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     let cli = cli::Cli::parse();
     match cli.command {
         None => picker::run(&projects_dir(), cli.reverse),
-        Some(cli::Command::Note { text, append }) => {
+        Some(cli::Command::Note { text, append, done }) => {
             let (sid, cwd) = target_session(cli.id)?;
             let mut note = text.join(" ");
             if append {
@@ -97,12 +97,19 @@ fn main() -> Result<()> {
                     note = format!("{prev} ⏎ {note}");
                 }
             }
-            let status = meta::load(&meta::notes_file(&cwd))
-                .get(&sid)
-                .map(|m| m.status)
-                .unwrap_or_default();
+            let status = if done {
+                Status::Done
+            } else {
+                meta::load(&meta::notes_file(&cwd))
+                    .get(&sid)
+                    .map(|m| m.status)
+                    .unwrap_or_default()
+            };
             let m = meta::upsert(&cwd, &sid, &now_stamp(), status, Some(note))?;
             println!("✓ note ({sid})\n  {}", m.note.unwrap_or_default());
+            if done {
+                println!("✓ statut=Done pour {sid}");
+            }
             Ok(())
         }
         Some(cli::Command::Hold) => set_status(cli.id, Status::Hold),

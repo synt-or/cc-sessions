@@ -24,6 +24,7 @@ PICKER INTERACTIF (cs sans argument)
 EXEMPLES
   cs                          Picker interactif
   cs note \"Résumé de session\" Attacher une note à la session courante
+  cs note \"Résumé\" --done      Attacher la note ET marquer la session done
   cs done                     Marquer la session courante done
   cs done --older-than 30d    Marquer done toutes les sessions inactives > 30 jours
   cs hold                     Mettre en attente
@@ -52,6 +53,9 @@ pub enum Command {
         /// Ajouter à la note existante
         #[arg(short = 'a', long)]
         append: bool,
+        /// Marquer aussi la session done (équivaut à `cs note … && cs done`)
+        #[arg(long)]
+        done: bool,
     },
     /// Marquer la session courante en attente
     Hold,

@@ -44,12 +44,16 @@ pub fn print_stats(projects_dir: &Path) -> Result<()> {
 
 /// Marque `done` toutes les sessions inactives depuis l'âge donné.
 pub fn mark_done_older_than(projects_dir: &Path, spec: &str) -> Result<()> {
-    let age = parse_age_ns(spec).ok_or_else(|| anyhow::anyhow!("âge invalide: {spec} (ex: 30d, 12h)"))?;
+    let age =
+        parse_age_ns(spec).ok_or_else(|| anyhow::anyhow!("âge invalide: {spec} (ex: 30d, 12h)"))?;
     let cutoff = now_ns().saturating_sub(age);
     let rows = build::rows(projects_dir);
     let mut n = 0;
     let stamp = crate::now_stamp_pub();
-    for r in rows.iter().filter(|r| r.info.mtime_ns < cutoff && r.status() != Status::Done) {
+    for r in rows
+        .iter()
+        .filter(|r| r.info.mtime_ns < cutoff && r.status() != Status::Done)
+    {
         if let Some(cwd) = &r.info.cwd {
             let note = r.meta.as_ref().and_then(|m| m.note.clone());
             meta::upsert(cwd, &r.info.session_id, &stamp, Status::Done, note)?;

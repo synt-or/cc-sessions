@@ -28,7 +28,14 @@ fn read_tail(path: &Path, n: u64) -> std::io::Result<String> {
 }
 
 /// Extrait les champs utiles d'un texte JSONL (concat head+tail).
-fn extract_fields(text: &str) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+fn extract_fields(
+    text: &str,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let (mut cwd, mut ai_title, mut last_prompt, mut first_user) = (None, None, None, None);
     for line in text.lines() {
         let line = line.trim();
@@ -63,15 +70,13 @@ fn extract_fields(text: &str) -> (Option<String>, Option<String>, Option<String>
                 let content = v.get("message").and_then(|m| m.get("content"));
                 let text = match content {
                     Some(serde_json::Value::String(s)) => Some(s.clone()),
-                    Some(serde_json::Value::Array(arr)) => arr
-                        .iter()
-                        .find_map(|p| {
-                            if p.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                p.get("text").and_then(|t| t.as_str()).map(String::from)
-                            } else {
-                                None
-                            }
-                        }),
+                    Some(serde_json::Value::Array(arr)) => arr.iter().find_map(|p| {
+                        if p.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            p.get("text").and_then(|t| t.as_str()).map(String::from)
+                        } else {
+                            None
+                        }
+                    }),
                     _ => None,
                 };
                 if let Some(t) = text {
@@ -101,7 +106,11 @@ pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
         read_head(path, HEAD)?
     };
     let (cwd, ai_title, last_prompt, first_user) = extract_fields(&text);
-    let session_id = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+    let session_id = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     Ok(SessionInfo {
         path: PathBuf::from(path),
         session_id,
@@ -117,7 +126,9 @@ pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
 /// Liste les .jsonl de toutes les sessions, hors `subagents` et fichiers < 2 Kio.
 pub fn discover(projects_dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    let Ok(entries) = std::fs::read_dir(projects_dir) else { return files };
+    let Ok(entries) = std::fs::read_dir(projects_dir) else {
+        return files;
+    };
     for proj in entries.flatten() {
         if !proj.path().is_dir() {
             continue;
@@ -151,7 +162,10 @@ mod tests {
     fn extracts_title_and_prompt_and_cwd() {
         let info = scan_file(&fixture()).unwrap();
         assert_eq!(info.ai_title.as_deref(), Some("Mon titre auto"));
-        assert_eq!(info.last_prompt.as_deref(), Some("le dernier prompt utilisateur"));
+        assert_eq!(
+            info.last_prompt.as_deref(),
+            Some("le dernier prompt utilisateur")
+        );
         assert_eq!(info.cwd.as_deref(), Some("/Users/x/proj"));
         assert_eq!(info.first_user.as_deref(), Some("première vraie question"));
         assert_eq!(info.session_id, "sample");

@@ -101,7 +101,11 @@ fn fmt_datetime(epoch_secs: i64, offset: i64) -> String {
     let days = local.div_euclid(86_400);
     let tod = local.rem_euclid(86_400);
     let (y, m, d) = civil_from_days(days);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", tod / 3600, (tod % 3600) / 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}",
+        tod / 3600,
+        (tod % 3600) / 60
+    )
 }
 
 /// Âge relatif lisible depuis le mtime de la session.
@@ -157,7 +161,10 @@ pub fn run(projects_dir: &Path, reverse: bool) -> Result<()> {
             }
             let display = format!(
                 "{}\t{}\t{}\t{}",
-                icon(r.status(), r.meta.as_ref().and_then(|m| m.note.as_ref()).is_some()),
+                icon(
+                    r.status(),
+                    r.meta.as_ref().and_then(|m| m.note.as_ref()).is_some()
+                ),
                 r.project_label,
                 r.summary(),
                 r.info.session_id
@@ -216,17 +223,25 @@ pub fn run(projects_dir: &Path, reverse: bool) -> Result<()> {
                 let target = if Path::new(&cwd).is_dir() {
                     cwd
                 } else {
-                    dirs::home_dir().unwrap_or_default().to_string_lossy().into_owned()
+                    dirs::home_dir()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
                 };
                 std::env::set_current_dir(&target)?;
-                let err = std::process::Command::new("claude").args(["--resume", &sid]).exec();
+                reset_tty_before_exec();
+                let err = std::process::Command::new("claude")
+                    .args(["--resume", &sid])
+                    .exec();
                 return Err(err.into());
             }
             Some(Action::SetStatus(status)) => {
                 apply_status(&sid, &cwd, status)?;
             }
             Some(Action::EditNote) => {
-                let current = meta::load(&meta::notes_file(&cwd)).get(&sid).and_then(|m| m.note.clone());
+                let current = meta::load(&meta::notes_file(&cwd))
+                    .get(&sid)
+                    .and_then(|m| m.note.clone());
                 if let Some(note) = prompt_note(current.as_deref()) {
                     apply_note(&sid, &cwd, note)?;
                 }
@@ -242,6 +257,33 @@ enum Action {
     Resume,
     SetStatus(Status),
     EditNote,
+}
+
+/// Remet le terminal dans un état sain juste avant l'`exec` de claude.
+///
+/// skim tourne en mode non-plein-écran (height 90 %) : il interroge le terminal
+/// (position curseur, etc.) et peut laisser des modes actifs. L'`exec` remplace
+/// le process sans redonner la main à cs : les réponses encore en vol et le
+/// typeahead resteraient dans le buffer du tty et seraient lus par la TUI de
+/// claude au démarrage (caractères « mangés » / séquences parasites).
+/// D'où : reset explicite des modes, court délai pour laisser arriver les
+/// réponses en transit, puis purge du buffer d'entrée.
+fn reset_tty_before_exec() {
+    use std::os::unix::io::AsRawFd;
+    let Ok(mut tty) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    else {
+        return;
+    };
+    // bracketed-paste off, mouse tracking off (X10/bouton/SGR), curseur visible
+    let _ = write!(tty, "\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?25h");
+    let _ = tty.flush();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    unsafe {
+        libc::tcflush(tty.as_raw_fd(), libc::TCIFLUSH);
+    }
 }
 
 /// Sous-menu skim des actions possibles sur la session sélectionnée.
@@ -268,7 +310,12 @@ fn action_menu(label: &str) -> Option<Action> {
     let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
     let items: Vec<Arc<dyn SkimItem>> = choices
         .into_iter()
-        .map(|(key, text)| Arc::new(Choice { label: text.into(), key: key.into() }) as Arc<dyn SkimItem>)
+        .map(|(key, text)| {
+            Arc::new(Choice {
+                label: text.into(),
+                key: key.into(),
+            }) as Arc<dyn SkimItem>
+        })
         .collect();
     let _ = tx.send(items);
     drop(tx);
@@ -293,21 +340,30 @@ fn action_menu(label: &str) -> Option<Action> {
 
 /// Change le statut en préservant la note existante.
 fn apply_status(sid: &str, cwd: &str, status: Status) -> Result<()> {
-    let existing = meta::load(&meta::notes_file(cwd)).get(sid).and_then(|m| m.note.clone());
+    let existing = meta::load(&meta::notes_file(cwd))
+        .get(sid)
+        .and_then(|m| m.note.clone());
     meta::upsert(cwd, sid, &crate::now_stamp_pub(), status, existing)?;
     Ok(())
 }
 
 /// Écrit/remplace la note en préservant le statut existant.
 fn apply_note(sid: &str, cwd: &str, note: String) -> Result<()> {
-    let status = meta::load(&meta::notes_file(cwd)).get(sid).map(|m| m.status).unwrap_or_default();
+    let status = meta::load(&meta::notes_file(cwd))
+        .get(sid)
+        .map(|m| m.status)
+        .unwrap_or_default();
     meta::upsert(cwd, sid, &crate::now_stamp_pub(), status, Some(note))?;
     Ok(())
 }
 
 /// Saisie d'une note sur `/dev/tty` (skim a consommé stdin). Ligne vide → annule.
 fn prompt_note(current: Option<&str>) -> Option<String> {
-    let mut tty = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").ok()?;
+    let mut tty = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .ok()?;
     if let Some(c) = current {
         let _ = writeln!(tty, "note actuelle : {c}");
     }

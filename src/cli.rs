@@ -29,12 +29,17 @@ EXEMPLES
   cs hold                     Mettre en attente
   cs active                   Réactiver
   cs stats                    Statistiques par projet
+  cs --id <uuid> burn         Marquer UNE session donnée (pas la courante)
 "
 )]
 pub struct Cli {
     /// Inverser l'ordre de tri des sessions dans le picker
     #[arg(long)]
     pub reverse: bool,
+    /// Cibler une session par son UUID au lieu de la session courante
+    /// (ex: cs --id <uuid> burn)
+    #[arg(long, value_name = "UUID", global = true)]
+    pub id: Option<String>,
     #[command(subcommand)]
     pub command: Option<Command>,
 }

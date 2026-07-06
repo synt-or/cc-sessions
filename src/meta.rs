@@ -6,8 +6,15 @@ use std::path::{Path, PathBuf};
 
 /// Chemin du fichier de notes local pour un cwd donné (git-root sinon cwd).
 pub fn notes_file(cwd: &str) -> PathBuf {
-    let root = git_root(cwd).unwrap_or_else(|| cwd.to_string());
-    Path::new(&root).join(".claude").join("session-notes.jsonl")
+    notes_file_with_root(cwd, git_root(cwd).as_deref())
+}
+
+/// Variante quand le git-root est déjà connu (boucle chaude du picker :
+/// évite de refaire la résolution pour chaque ligne du même projet).
+pub fn notes_file_with_root(cwd: &str, root: Option<&str>) -> PathBuf {
+    Path::new(root.unwrap_or(cwd))
+        .join(".claude")
+        .join("session-notes.jsonl")
 }
 
 /// Charge toutes les métadonnées d'un fichier de notes (last-wins par sessionId).
@@ -25,7 +32,13 @@ pub fn load(file: &Path) -> HashMap<String, SessionMeta> {
 
 /// Écrit/remplace l'entrée d'une session dans son fichier de notes local,
 /// et garantit l'exclusion git via .git/info/exclude.
-pub fn upsert(cwd: &str, session_id: &str, updated_at: &str, status: Status, note: Option<String>) -> std::io::Result<SessionMeta> {
+pub fn upsert(
+    cwd: &str,
+    session_id: &str,
+    updated_at: &str,
+    status: Status,
+    note: Option<String>,
+) -> std::io::Result<SessionMeta> {
     let file = notes_file(cwd);
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
@@ -66,7 +79,11 @@ fn ensure_git_excluded(cwd: &str) {
         if let Some(dir) = exclude.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&exclude) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&exclude)
+        {
             let _ = writeln!(f, "{entry}");
         }
     }
@@ -81,8 +98,22 @@ mod tests {
         let dir = std::env::temp_dir().join("cs_meta_test");
         std::fs::create_dir_all(&dir).unwrap();
         let cwd = dir.to_string_lossy().into_owned();
-        upsert(&cwd, "sid1", "2026-06-01T10:00", Status::Hold, Some("attend CI".into())).unwrap();
-        upsert(&cwd, "sid1", "2026-06-01T11:00", Status::Done, Some("fini".into())).unwrap();
+        upsert(
+            &cwd,
+            "sid1",
+            "2026-06-01T10:00",
+            Status::Hold,
+            Some("attend CI".into()),
+        )
+        .unwrap();
+        upsert(
+            &cwd,
+            "sid1",
+            "2026-06-01T11:00",
+            Status::Done,
+            Some("fini".into()),
+        )
+        .unwrap();
         let all = load(&notes_file(&cwd));
         assert_eq!(all.len(), 1); // last-wins, pas de doublon
         assert_eq!(all["sid1"].status, Status::Done);

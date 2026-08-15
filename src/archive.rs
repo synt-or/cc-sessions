@@ -57,7 +57,7 @@ pub fn archive(projects_dir: &Path, older_than: Option<&str>, uuids: &[String]) 
         std::fs::rename(&f, &dest)?;
         moved += 1;
     }
-    let _ = build::rows(projects_dir);
+    let _ = build::rows(projects_dir, None);
     println!(
         "✓ {moved} session(s) archivée(s) dans {}",
         archive_root().display()

@@ -5,8 +5,13 @@ use std::path::Path;
 
 const MAX_ROWS: usize = 300;
 
-/// Pipeline complet : découverte -> cache -> méta locale -> tri.
-pub fn rows(projects_dir: &Path) -> Vec<SessionRow> {
+/// Pipeline complet : découverte -> cache -> méta locale -> filtre -> tri.
+///
+/// `scope` (cf. `project::scope_root`) restreint la liste aux sessions du
+/// périmètre courant — `None` = toutes. Le filtre s'applique **avant** le tri
+/// et la troncature à MAX_ROWS : filtrer en aval masquerait les sessions du
+/// périmètre qui ne tiennent pas dans le top-300 global.
+pub fn rows(projects_dir: &Path, scope: Option<&str>) -> Vec<SessionRow> {
     let files = scan::discover(projects_dir);
     let idx_path = cache::index_path();
     let cached = cache::load(&idx_path);
@@ -22,12 +27,17 @@ pub fn rows(projects_dir: &Path) -> Vec<SessionRow> {
 
     let mut rows: Vec<SessionRow> = index
         .into_values()
-        .map(|info| {
+        .filter_map(|info| {
             let cwd = info.cwd.clone().unwrap_or_default();
             let root = root_cache
                 .entry(cwd.clone())
                 .or_insert_with(|| project::git_root(&cwd))
                 .clone();
+            if let Some(scope) = scope {
+                if !project::is_local(info.cwd.as_deref(), root.as_deref(), scope) {
+                    return None;
+                }
+            }
             let label = project::label(&cwd, root.as_deref());
             let notes_file = meta::notes_file_with_root(&cwd, root.as_deref());
             let key = notes_file.to_string_lossy().into_owned();
@@ -35,11 +45,11 @@ pub fn rows(projects_dir: &Path) -> Vec<SessionRow> {
                 .entry(key)
                 .or_insert_with(|| meta::load(&notes_file));
             let m = metas.get(&info.session_id).cloned();
-            SessionRow {
+            Some(SessionRow {
                 info,
                 meta: m,
                 project_label: label,
-            }
+            })
         })
         .collect();
 

@@ -134,10 +134,10 @@ fn human_age(mtime_ns: u64, now: u64) -> String {
 /// Lance le picker principal en boucle ; Enter sur une session ouvre un sous-menu
 /// d'action (reprendre / changer statut / éditer note). Seul « reprendre » quitte
 /// le programme (execvp claude --resume) ; les autres actions rafraîchissent la liste.
-pub fn run(projects_dir: &Path, reverse: bool) -> Result<()> {
+pub fn run(projects_dir: &Path, reverse: bool, scope: Option<&str>) -> Result<()> {
     let tz_offset = local_offset_secs();
     loop {
-        let mut rows = build::rows(projects_dir);
+        let mut rows = build::rows(projects_dir, scope);
         if reverse {
             rows.reverse();
         }
@@ -190,6 +190,16 @@ pub fn run(projects_dir: &Path, reverse: bool) -> Result<()> {
                 preview,
             }));
         }
+        // Sous --local, une liste vide est un cas normal : skim afficherait un
+        // écran blanc sans explication, on sort avec un message à la place.
+        if items.is_empty() {
+            match scope {
+                Some(s) => println!("aucune session active pour {s}\n  (relance `cs` sans --local pour voir tous les projets)"),
+                None => println!("aucune session active"),
+            }
+            return Ok(());
+        }
+
         let _ = tx.send(items);
         drop(tx);
 

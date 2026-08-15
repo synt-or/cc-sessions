@@ -56,7 +56,7 @@ fn target_session(explicit: Option<String>) -> Result<(String, String)> {
     match explicit {
         Some(sid) => {
             let cwd = cwd_of_session(&sid).or_else(|| {
-                let _ = build::rows(&projects_dir()); // rafraîchit l'index
+                let _ = build::rows(&projects_dir(), None); // rafraîchit l'index
                 cwd_of_session(&sid)
             });
             match cwd {
@@ -82,10 +82,21 @@ fn set_status(id: Option<String>, status: Status) -> Result<()> {
     Ok(())
 }
 
+/// Périmètre du filtre `--local` : le repo courant, ou le pwd hors repo.
+fn local_scope() -> Result<String> {
+    let cwd = std::env::current_dir()?;
+    let cwd = cwd.to_string_lossy();
+    project::scope_root(&cwd)
+        .ok_or_else(|| anyhow::anyhow!("--local : répertoire courant introuvable ({cwd})"))
+}
+
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
     match cli.command {
-        None => picker::run(&projects_dir(), cli.reverse),
+        None => {
+            let scope = if cli.local { Some(local_scope()?) } else { None };
+            picker::run(&projects_dir(), cli.reverse, scope.as_deref())
+        }
         Some(cli::Command::Note { text, append, done }) => {
             let (sid, cwd) = target_session(cli.id)?;
             let mut note = text.join(" ");

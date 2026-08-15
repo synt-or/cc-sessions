@@ -23,6 +23,7 @@ PICKER INTERACTIF (cs sans argument)
 
 EXEMPLES
   cs                          Picker interactif
+  cs --local                  Picker restreint au repo courant (alias -l)
   cs note \"Résumé de session\" Attacher une note à la session courante
   cs note \"Résumé\" --done      Attacher la note ET marquer la session done
   cs done                     Marquer la session courante done
@@ -37,6 +38,10 @@ pub struct Cli {
     /// Inverser l'ordre de tri des sessions dans le picker
     #[arg(long)]
     pub reverse: bool,
+    /// Ne lister que les sessions du repo courant (git-root du pwd ;
+    /// hors repo, le sous-arbre du pwd)
+    #[arg(short = 'l', long)]
+    pub local: bool,
     /// Cibler une session par son UUID au lieu de la session courante
     /// (ex: cs --id <uuid> burn)
     #[arg(long, value_name = "UUID", global = true)]

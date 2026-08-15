@@ -26,7 +26,8 @@ fn now_ns() -> u64 {
 
 /// Affiche un récap par projet.
 pub fn print_stats(projects_dir: &Path) -> Result<()> {
-    let rows = build::rows(projects_dir);
+    // None : les stats restent globales, indépendantes du pwd.
+    let rows = build::rows(projects_dir, None);
     let mut by_proj: BTreeMap<String, (usize, u64, u64)> = BTreeMap::new();
     for r in &rows {
         let e = by_proj.entry(r.project_label.clone()).or_insert((0, 0, 0));
@@ -47,7 +48,9 @@ pub fn mark_done_older_than(projects_dir: &Path, spec: &str) -> Result<()> {
     let age =
         parse_age_ns(spec).ok_or_else(|| anyhow::anyhow!("âge invalide: {spec} (ex: 30d, 12h)"))?;
     let cutoff = now_ns().saturating_sub(age);
-    let rows = build::rows(projects_dir);
+    // None délibéré : opération qui ÉCRIT des statuts — son périmètre ne doit
+    // jamais dépendre du répertoire depuis lequel `cs done` est lancé.
+    let rows = build::rows(projects_dir, None);
     let mut n = 0;
     let stamp = crate::now_stamp_pub();
     for r in rows

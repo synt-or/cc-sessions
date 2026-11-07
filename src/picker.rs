@@ -1,5 +1,6 @@
 use crate::model::Status;
-use crate::{build, meta};
+use crate::paths::Paths;
+use crate::{build, live, meta};
 use anyhow::Result;
 use skim::prelude::*;
 use std::borrow::Cow;
@@ -134,14 +135,15 @@ fn human_age(mtime_ns: u64, now: u64) -> String {
 /// Lance le picker principal en boucle ; Enter sur une session ouvre un sous-menu
 /// d'action (reprendre / changer statut / éditer note). Seul « reprendre » quitte
 /// le programme (execvp claude --resume) ; les autres actions rafraîchissent la liste.
-pub fn run(projects_dir: &Path, reverse: bool, scope: Option<&str>) -> Result<()> {
+pub fn run(paths: &Paths, reverse: bool, scope: Option<&str>, all: bool) -> Result<()> {
     let tz_offset = local_offset_secs();
     loop {
-        let mut rows = build::rows(projects_dir, scope);
+        let mut rows = build::rows(paths, scope, all);
         if reverse {
             rows.reverse();
         }
         let now = now_ns();
+        let open = live::open_sessions(paths);
 
         let options = SkimOptionsBuilder::default()
             .height("90%")
@@ -159,8 +161,10 @@ pub fn run(projects_dir: &Path, reverse: bool, scope: Option<&str>) -> Result<()
             if r.status() == Status::Done {
                 continue;
             }
+            let is_open = open.contains(&r.info.session_id);
             let display = format!(
-                "{}\t{}\t{}\t{}",
+                "{}{}\t{}\t{}\t{}",
+                if is_open { "🟢" } else { "" },
                 icon(
                     r.status(),
                     r.meta.as_ref().and_then(|m| m.note.as_ref()).is_some()
@@ -169,14 +173,21 @@ pub fn run(projects_dir: &Path, reverse: bool, scope: Option<&str>) -> Result<()
                 r.summary(),
                 r.info.session_id
             );
-            let age = human_age(r.info.mtime_ns, now);
-            let when = fmt_datetime((r.info.mtime_ns / 1_000_000_000) as i64, tz_offset);
+            let age = human_age(r.info.activity_ns(), now);
+            let when = fmt_datetime((r.info.activity_ns() / 1_000_000_000) as i64, tz_offset);
+            let activity_label = if r.info.last_real_ms().is_some() {
+                "dernier message"
+            } else {
+                "date du fichier"
+            };
             let preview = format!(
-                "{}\nprojet : {}\nuuid : {}\nstatut : {:?}\nâge : {} ({})\n\nnote : {}\n\ndernier prompt :\n{}",
+                "{}\nprojet : {}\nuuid : {}\nstatut : {:?}{}\n{} : {} ({})\n\nnote : {}\n\ndernier prompt :\n{}",
                 r.info.ai_title.clone().unwrap_or_else(|| "(sans titre)".into()),
                 r.info.cwd.clone().unwrap_or_default(),
                 r.info.session_id,
                 r.status(),
+                if is_open { " · 🟢 ouverte" } else { "" },
+                activity_label,
                 age,
                 when,
                 r.meta.as_ref().and_then(|m| m.note.clone()).unwrap_or_else(|| "—".into()),
@@ -222,38 +233,15 @@ pub fn run(projects_dir: &Path, reverse: bool, scope: Option<&str>) -> Result<()
         match action_menu(&label) {
             // « Reprendre » : ne revient jamais (remplace le process).
             Some(Action::Resume) => {
-                // `claude --resume <id>` retrouve la session via le projet encodé
-                // depuis le cwd courant. Il faut donc se placer dans le cwd d'origine.
-                // S'il a été supprimé/déplacé, on le recrée (dossier vide) — sinon un
-                // fallback HOME pointerait vers le mauvais projet → « No conversation found ».
-                if !cwd.is_empty() && !Path::new(&cwd).is_dir() {
-                    eprintln!("cs: dossier d'origine absent, recréé pour le resume : {cwd}");
-                    let _ = std::fs::create_dir_all(&cwd);
-                }
-                let target = if Path::new(&cwd).is_dir() {
-                    cwd
-                } else {
-                    dirs::home_dir()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned()
-                };
-                std::env::set_current_dir(&target)?;
-                reset_tty_before_exec();
-                let err = std::process::Command::new("claude")
-                    .args(["--resume", &sid])
-                    .exec();
-                return Err(err.into());
+                return resume(paths, &sid, &cwd);
             }
             Some(Action::SetStatus(status)) => {
-                apply_status(&sid, &cwd, status)?;
+                apply_status(paths, &sid, &cwd, status)?;
             }
             Some(Action::EditNote) => {
-                let current = meta::load(&meta::notes_file(&cwd))
-                    .get(&sid)
-                    .and_then(|m| m.note.clone());
+                let current = meta::load_for(paths, &cwd, &sid).and_then(|m| m.note);
                 if let Some(note) = prompt_note(current.as_deref()) {
-                    apply_note(&sid, &cwd, note)?;
+                    apply_note(paths, &sid, &cwd, note)?;
                 }
             }
             // ESC dans le sous-menu → retour à la liste.
@@ -261,6 +249,38 @@ pub fn run(projects_dir: &Path, reverse: bool, scope: Option<&str>) -> Result<()
         }
         // boucle : la liste se reconstruit avec les méta à jour.
     }
+}
+
+/// Reprend une session : ne revient jamais, sauf sous bac à sable où la commande
+/// est seulement affichée.
+///
+/// `claude --resume <id>` retrouve la session via le projet encodé depuis le cwd
+/// courant : il faut donc se placer dans le cwd d'origine. S'il a été supprimé ou
+/// déplacé, on le recrée (dossier vide), sinon un repli sur HOME pointerait vers
+/// le mauvais projet → « No conversation found ».
+pub fn resume(paths: &Paths, sid: &str, cwd: &str) -> Result<()> {
+    if paths.is_sandbox() {
+        println!("bac à sable : (cd {cwd} && claude --resume {sid})");
+        return Ok(());
+    }
+    if !cwd.is_empty() && !Path::new(cwd).is_dir() {
+        eprintln!("cs: dossier d'origine absent, recréé pour le resume : {cwd}");
+        let _ = std::fs::create_dir_all(cwd);
+    }
+    let target = if Path::new(cwd).is_dir() {
+        cwd.to_string()
+    } else {
+        dirs::home_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    };
+    std::env::set_current_dir(&target)?;
+    reset_tty_before_exec();
+    let err = std::process::Command::new("claude")
+        .args(["--resume", sid])
+        .exec();
+    Err(err.into())
 }
 
 enum Action {
@@ -349,21 +369,14 @@ fn action_menu(label: &str) -> Option<Action> {
 }
 
 /// Change le statut en préservant la note existante.
-fn apply_status(sid: &str, cwd: &str, status: Status) -> Result<()> {
-    let existing = meta::load(&meta::notes_file(cwd))
-        .get(sid)
-        .and_then(|m| m.note.clone());
-    meta::upsert(cwd, sid, &crate::now_stamp_pub(), status, existing)?;
+fn apply_status(paths: &Paths, sid: &str, cwd: &str, status: Status) -> Result<()> {
+    meta::set_status(paths, cwd, sid, status)?;
     Ok(())
 }
 
 /// Écrit/remplace la note en préservant le statut existant.
-fn apply_note(sid: &str, cwd: &str, note: String) -> Result<()> {
-    let status = meta::load(&meta::notes_file(cwd))
-        .get(sid)
-        .map(|m| m.status)
-        .unwrap_or_default();
-    meta::upsert(cwd, sid, &crate::now_stamp_pub(), status, Some(note))?;
+fn apply_note(paths: &Paths, sid: &str, cwd: &str, note: String) -> Result<()> {
+    meta::set_note(paths, cwd, sid, Some(note))?;
     Ok(())
 }
 

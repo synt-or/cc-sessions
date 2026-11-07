@@ -1,11 +1,14 @@
 use crate::model::SessionInfo;
+use crate::transcript;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 const HEAD: u64 = 32 * 1024;
 const TAIL: u64 = 64 * 1024;
+const HASHED_TAIL: u64 = 4 * 1024;
 
 /// Lit les `n` premiers octets d'un fichier.
 fn read_head(path: &Path, n: u64) -> std::io::Result<String> {
@@ -91,8 +94,23 @@ fn extract_fields(
     (cwd, ai_title, last_prompt, first_user)
 }
 
-/// Construit un SessionInfo pour un fichier `.jsonl`.
-pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
+/// Hash des 4 Kio qui précèdent la position `end`. Stable d'un lancement à
+/// l'autre, et sans enjeu si la version de Rust le change : un cache invalide
+/// provoque une simple relecture.
+pub fn tail_hash(path: &Path, end: u64) -> std::io::Result<u64> {
+    let mut f = File::open(path)?;
+    let start = end.saturating_sub(HASHED_TAIL);
+    f.seek(SeekFrom::Start(start))?;
+    let mut buf = vec![0u8; (end - start) as usize];
+    f.read_exact(&mut buf)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hasher.write(&buf);
+    Ok(hasher.finish())
+}
+
+/// Construit un SessionInfo pour un fichier `.jsonl`. `prev` : entrée de cache
+/// d'un fichier qui n'a fait que grandir, lu alors depuis son dernier offset.
+pub fn scan_file(path: &Path, prev: Option<&SessionInfo>) -> std::io::Result<SessionInfo> {
     let meta = path.metadata()?;
     let mtime_ns = meta
         .modified()?
@@ -106,6 +124,14 @@ pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
         read_head(path, HEAD)?
     };
     let (cwd, ai_title, last_prompt, first_user) = extract_fields(&text);
+    let digest = transcript::read_digest(path, prev.map(|p| p.digest.clone()))?;
+    let tail_hash = tail_hash(path, size)?;
+    // Le début d'un fichier ne change pas ; la fin apporte le plus récent, mais
+    // ne contient pas forcément de titre : on garde alors l'ancien.
+    let cwd = prev.and_then(|p| p.cwd.clone()).or(cwd);
+    let first_user = prev.and_then(|p| p.first_user.clone()).or(first_user);
+    let ai_title = ai_title.or_else(|| prev.and_then(|p| p.ai_title.clone()));
+    let last_prompt = last_prompt.or_else(|| prev.and_then(|p| p.last_prompt.clone()));
     let session_id = path
         .file_stem()
         .unwrap_or_default()
@@ -120,6 +146,8 @@ pub fn scan_file(path: &Path) -> std::io::Result<SessionInfo> {
         ai_title,
         last_prompt,
         first_user,
+        digest,
+        tail_hash,
     })
 }
 
@@ -139,11 +167,10 @@ pub fn discover(projects_dir: &Path) -> Vec<PathBuf> {
         if let Ok(sessions) = std::fs::read_dir(proj.path()) {
             for s in sessions.flatten() {
                 let p = s.path();
-                if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                    if p.metadata().map(|m| m.len() >= 2048).unwrap_or(false) {
+                if p.extension().and_then(|e| e.to_str()) == Some("jsonl")
+                    && p.metadata().map(|m| m.len() >= 2048).unwrap_or(false) {
                         files.push(p);
                     }
-                }
             }
         }
     }
@@ -160,7 +187,7 @@ mod tests {
 
     #[test]
     fn extracts_title_and_prompt_and_cwd() {
-        let info = scan_file(&fixture()).unwrap();
+        let info = scan_file(&fixture(), None).unwrap();
         assert_eq!(info.ai_title.as_deref(), Some("Mon titre auto"));
         assert_eq!(
             info.last_prompt.as_deref(),

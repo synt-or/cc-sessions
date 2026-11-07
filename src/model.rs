@@ -1,3 +1,4 @@
+use crate::transcript::Digest;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -26,6 +27,10 @@ pub struct SessionMeta {
     pub status: Status,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Date de la dernière décision de l'utilisateur (statut posé). Distincte
+    /// d'`updatedAt`, qu'une simple modification de note fait bouger.
+    #[serde(rename = "decidedAt", skip_serializing_if = "Option::is_none")]
+    pub decided_at: Option<String>,
 }
 
 /// Données extraites d'un fichier de session `.jsonl`.
@@ -39,6 +44,34 @@ pub struct SessionInfo {
     pub ai_title: Option<String>,
     pub last_prompt: Option<String>,
     pub first_user: Option<String>,
+    #[serde(default)]
+    pub digest: Digest,
+    /// Hash des derniers octets lus : détecte un fichier réécrit à taille égale.
+    #[serde(default)]
+    pub tail_hash: u64,
+}
+
+impl SessionInfo {
+    /// Titre à afficher : celui donné à la main, sinon le plus récent généré.
+    pub fn title(&self) -> Option<&str> {
+        self.digest
+            .custom_title
+            .as_deref()
+            .or(self.digest.ai_title.as_deref())
+            .or(self.ai_title.as_deref())
+    }
+
+    pub fn last_real_ms(&self) -> Option<i64> {
+        self.digest.last_real_at_ms
+    }
+
+    /// Dernier signe d'activité de l'utilisateur. La date du fichier bouge toute
+    /// seule : elle ne sert qu'en repli, pour une session sans vrai message.
+    pub fn activity_ns(&self) -> u64 {
+        self.last_real_ms()
+            .map(|ms| (ms.max(0) as u64).saturating_mul(1_000_000))
+            .unwrap_or(self.mtime_ns)
+    }
 }
 
 /// Ligne prête à l'affichage : info brute + méta utilisateur + libellé projet.
@@ -78,7 +111,7 @@ impl SessionRow {
             Status::Active => 3,
             Status::Done => 4,
         };
-        (rank, std::cmp::Reverse(self.info.mtime_ns))
+        (rank, std::cmp::Reverse(self.info.activity_ns()))
     }
 }
 
@@ -97,6 +130,8 @@ mod row_tests {
             ai_title: Some("Titre".into()),
             last_prompt: None,
             first_user: None,
+            digest: Default::default(),
+            tail_hash: 0,
         }
     }
 
@@ -109,10 +144,19 @@ mod row_tests {
                 updated_at: "t".into(),
                 status: Status::Active,
                 note: Some("ma note".into()),
+                decided_at: None,
             }),
             project_label: "proj".into(),
         };
         assert_eq!(row.summary(), "ma note");
+    }
+
+    #[test]
+    fn activity_prefers_last_real_message_over_file_date() {
+        let mut i = info(9_000_000_000_000_000);
+        assert_eq!(i.activity_ns(), 9_000_000_000_000_000);
+        i.digest.last_real_at_ms = Some(1_000);
+        assert_eq!(i.activity_ns(), 1_000_000_000);
     }
 
     #[test]
@@ -124,6 +168,7 @@ mod row_tests {
                 updated_at: "t".into(),
                 status: Status::Hold,
                 note: None,
+                decided_at: None,
             }),
             project_label: "p".into(),
         };
@@ -165,6 +210,22 @@ mod tests {
     }
 
     #[test]
+    fn catalog_has_each_status_exactly_once() {
+        let keys: Vec<String> = [
+            Status::Active,
+            Status::Hold,
+            Status::ReadyToBurn,
+            Status::NeedsManualWork,
+            Status::Done,
+        ]
+        .iter()
+        .map(|s| serde_json::to_string(s).unwrap().trim_matches('"').to_string())
+        .collect();
+        let catalog: Vec<String> = crate::categories::CATEGORIES.iter().map(|(k, _)| k.to_string()).collect();
+        assert_eq!(keys, catalog);
+    }
+
+    #[test]
     fn meta_roundtrip_with_defaults() {
         let line = r#"{"sessionId":"abc","updatedAt":"2026-06-01T13:45","status":"hold","note":"reprendre A1.3"}"#;
         let m: SessionMeta = serde_json::from_str(line).unwrap();
@@ -187,6 +248,7 @@ mod tests {
             updated_at: "2026-06-01T13:45".into(),
             status: Status::Active,
             note: None,
+            decided_at: None,
         };
         let s = serde_json::to_string(&m).unwrap();
         assert!(

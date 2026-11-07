@@ -21,8 +21,20 @@ PICKER INTERACTIF (cs sans argument)
 
   Note : les sessions déjà marquées « done » sont masquées dans le picker.
 
+REVUE (cs review)
+  Une session à la fois, avec ses recaps, ses derniers échanges et sa note.
+  d h b m a         Décider (done, hold, burn, manual, active), après confirmation
+  n · r · s         Note · reprendre · sauter
+  z                 Annuler la décision précédente, à répéter jusqu'à la première
+  ↑↓ · Tab · ←→ · q Défiler · changer de zone · naviguer · quitter (la progression est conservée)
+
+  Une session triée ne revient que si tu lui réécris.
+  Les sessions du pont vocal sont masquées partout : --all les montre.
+
 EXEMPLES
   cs                          Picker interactif
+  cs review                   Passer les sessions en revue
+  cs -z                       Annuler la dernière décision et rouvrir la revue
   cs --local                  Picker restreint au repo courant (alias -l)
   cs note \"Résumé de session\" Attacher une note à la session courante
   cs note \"Résumé\" --done      Attacher la note ET marquer la session done
@@ -40,8 +52,14 @@ pub struct Cli {
     pub reverse: bool,
     /// Ne lister que les sessions du repo courant (git-root du pwd ;
     /// hors repo, le sous-arbre du pwd)
-    #[arg(short = 'l', long)]
+    #[arg(short = 'l', long, global = true)]
     pub local: bool,
+    /// Annuler la dernière décision de revue et rouvrir la revue dessus
+    #[arg(short = 'z', global = true)]
+    pub undo: bool,
+    /// Montrer aussi les sessions du pont vocal (masquées par défaut)
+    #[arg(long, global = true)]
+    pub all: bool,
     /// Cibler une session par son UUID au lieu de la session courante
     /// (ex: cs --id <uuid> burn)
     #[arg(long, value_name = "UUID", global = true)]
@@ -52,6 +70,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Passer les sessions en revue une à une, jusqu'à les avoir toutes triées
+    Review,
     /// Écrire/remplacer la note de la session courante
     Note {
         text: Vec<String>,

@@ -2,7 +2,7 @@ use crate::model::Status;
 use crate::{build, meta};
 use anyhow::Result;
 use std::collections::BTreeMap;
-use std::path::Path;
+use crate::paths::Paths;
 
 /// Parse "30d" / "12h" -> nanosecondes. None si invalide.
 pub fn parse_age_ns(spec: &str) -> Option<u64> {
@@ -25,9 +25,9 @@ fn now_ns() -> u64 {
 }
 
 /// Affiche un récap par projet.
-pub fn print_stats(projects_dir: &Path) -> Result<()> {
+pub fn print_stats(paths: &Paths) -> Result<()> {
     // None : les stats restent globales, indépendantes du pwd.
-    let rows = build::rows(projects_dir, None);
+    let rows = build::all_rows(paths, None);
     let mut by_proj: BTreeMap<String, (usize, u64, u64)> = BTreeMap::new();
     for r in &rows {
         let e = by_proj.entry(r.project_label.clone()).or_insert((0, 0, 0));
@@ -39,27 +39,25 @@ pub fn print_stats(projects_dir: &Path) -> Result<()> {
     for (proj, (n, size, _)) in &by_proj {
         println!("{:<30} {:>6} {:>9}M", proj, n, size / 1_048_576);
     }
-    println!("\n{} sessions affichées (max 300).", rows.len());
+    println!("\n{} sessions.", rows.len());
     Ok(())
 }
 
 /// Marque `done` toutes les sessions inactives depuis l'âge donné.
-pub fn mark_done_older_than(projects_dir: &Path, spec: &str) -> Result<()> {
+pub fn mark_done_older_than(paths: &Paths, spec: &str) -> Result<()> {
     let age =
         parse_age_ns(spec).ok_or_else(|| anyhow::anyhow!("âge invalide: {spec} (ex: 30d, 12h)"))?;
     let cutoff = now_ns().saturating_sub(age);
     // None délibéré : opération qui ÉCRIT des statuts — son périmètre ne doit
     // jamais dépendre du répertoire depuis lequel `cs done` est lancé.
-    let rows = build::rows(projects_dir, None);
+    let rows = build::all_rows(paths, None);
     let mut n = 0;
-    let stamp = crate::now_stamp_pub();
     for r in rows
         .iter()
-        .filter(|r| r.info.mtime_ns < cutoff && r.status() != Status::Done)
+        .filter(|r| r.info.activity_ns() < cutoff && r.status() != Status::Done)
     {
         if let Some(cwd) = &r.info.cwd {
-            let note = r.meta.as_ref().and_then(|m| m.note.clone());
-            meta::upsert(cwd, &r.info.session_id, &stamp, Status::Done, note)?;
+            meta::set_status(paths, cwd, &r.info.session_id, Status::Done)?;
             n += 1;
         }
     }

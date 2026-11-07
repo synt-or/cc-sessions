@@ -19,6 +19,18 @@ pub fn git_root(cwd: &str) -> Option<String> {
     None
 }
 
+/// Le volume qui porte ce chemin est-il absent ? Ses sessions n'ont alors rien
+/// perdu : leurs notes sont sur ce volume, simplement inaccessibles.
+pub fn volume_missing(cwd: &str) -> bool {
+    let mut parts = Path::new(cwd).components().skip(1);
+    match (parts.next(), parts.next()) {
+        (Some(first), Some(name)) if first.as_os_str() == "Volumes" => {
+            !Path::new("/Volumes").join(name).exists()
+        }
+        _ => false,
+    }
+}
+
 /// Périmètre « local » d'un répertoire (référence du filtre `cs --local`) :
 /// son git-root si on est dans un repo, sinon le répertoire lui-même.
 /// Toujours canonicalisé — comparer un `/tmp/x` à un `/private/tmp/x` (macOS)
@@ -85,6 +97,13 @@ pub fn label(cwd: &str, root: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_missing_volume_only() {
+        assert!(volume_missing("/Volumes/n-existe-pas/projet"));
+        assert!(!volume_missing("/Users/x/projet"));
+        assert!(!volume_missing("/n/existe/pas"));
+    }
 
     #[test]
     fn repo_root_gives_repo_name() {
